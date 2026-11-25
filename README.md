@@ -1,16 +1,16 @@
-Project Title
+Project Title : 
     NetGuard - Predictive Connectivity Intelligence
 
-Problem Statement
+Problem Statement - 
     Users discover poor network connectivity 0nly after entering low-coverage areas.
 
-Solution
+Solution - 
     NetGuard continuously collects mobile network telemetry and location data, identifies recurring low-connectivity zones, and proactively alerts users before entering those zones.
 
-key Innovation
+key Innovation - 
     Predicts network degradation before it impacts the user.
 
-Business Impact
+Business Impact - 
     * Reduced communication failures
     * improved remote workforce productivity
     * Better route and connectivity planning
@@ -18,7 +18,7 @@ Business Impact
     * Improved Remote Productivity: Minimises sudden disconnections during corporate VOIP calls, uploads, or syncs.
     * Smarter Route Planning: Empowers logistics and remote teams to plan travel paths based on predicted connectivity profiles.
 
-Tech Stack
+Tech Stack - 
     • Environment: Termux (Android Linux Environment)
     • Core Language: Python
     • Data Storage: SQLite (On-device local DB), AWS (Cloud analytics/storage)
