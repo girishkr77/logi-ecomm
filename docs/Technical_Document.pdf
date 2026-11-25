@@ -1,0 +1,146 @@
+
+Technical Design Document: NetGuard
+
+1. System Architecture Overview
+
+NetGuard is designed as an offline-first, resource-aware mobile intelligence system running inside an Android environment via Termux. The system shifts network optimization from reactive handling to proactive avoidance by combining local data ingestion, spatial indexing, and system constraint management.
+Show Code
+
+    1.1 Core Design Principles
+
+        • Edge-Native Autonomy: All critical pipelines—collection, storage, spatial query, and alerting—run natively on the mobile device without a hard cloud dependency.
+        • Proactive Resource Throttling: Background analytics scale down or pause based on real-time device hardware strain.
+
+2. Component Deconstruction
+
+
+    2.1 Automated Data Collector
+
+        The collector functions as an asynchronous background service responsible for pulling multi-dimensional telemetry strings.
+        • Ingestion Metrics: Cellular signal strength (RSSI/RSRP), network generation type (4G/5G), carrier metadata, and concurrent high-precision GPS coordinates.
+        • Write Mechanism: Telemetry data points are buffered in memory and batched to the database at deterministic intervals to prevent storage thrashing and preserve battery life.
+
+    2.2 Local Storage Strategy (SQLite)
+
+        To maintain pure offline capabilities, data persistence relies on an optimized embedded SQLite database instance structured with explicit performance indexes.
+        • Schema Definition: Tracks unique telemetry instances bound to spatial identifiers.
+        • Indexing Strategy: Composite indexes are applied over latitude/longitude columns to guarantee sub-millisecond query execution during real-time movement lookups.
+
+    2.3 Resource & RAM Guard
+
+        Because the engine runs in a restricted mobile sandbox (Termux), standard unconstrained analytical operations present a device-crash risk. The RAM Guard acts as a systemic circuit breaker.
+        • Pre-Execution Validation: Prior to initializing memory-intensive data operations (such as Pandas DataFrame manipulations), the module interrogates system memory profiles (/proc/meminfo or Python's psutil).
+        • Execution Logic:
+            • Safe Threshold (Memory > 25% Free): Execution proceeds normally.
+            • Constrained Threshold (Memory <= 25% Free): The system defers parsing tasks, reduces Pandas batch sizes dynamically, or puts the aggregation thread to sleep until resource pressures ease.
+
+    2.4 Predictive Map Generator & Geo-Bucketing
+
+        The translation of raw coordinates into actionable dead-zone polygons relies on static mathematical spatial bucketing rather than intensive spatial clustering loops.
+        • Geo-Bucketing Resolution: High-precision latitudes and longitudes are truncated/rounded to 3 decimal places. This uniformly maps the Earth's surface into static zones of approximately 111 metres x 111 metres.
+        • Zone Assessment: Telemetry signals within a specific 3-decimal key are averaged. If mean signal qualities drop below predefined operational thresholds, the specific grid key is flagged as a Connectivity Deficit Zone.
+
+3. Data & Execution Lifecycle
+
+    Step 1: Ingestion
+    Background scripts hit Android platform APIs via Termux-API hooks to collect spatial and telemetry coordinates.
+
+    Step 2: Persistence
+    Raw readings are written straight into the local SQLite database.
+
+    Step 3: Resource Gatekeeping
+    The execution scheduler wakes up to generate or refresh maps. The RAM Guard evaluates available memory capacity. If it fails validation, execution halts.
+
+    Step 4: Analytical Aggregation
+    Once cleared by the RAM Guard, the Map Generator pulls database updates into Pandas, performs 3-decimal string grouping, and re-calculates the local connectivity risk matrix.
+
+    Step 5: Edge Proximity Alerting
+    As the user moves, live GPS data points are cross-referenced against flagged grid keys in the local database. If a trajectory matches an oncoming low-connectivity zone key, a priority OS alert triggers.
+
+4. Hybrid Synchronization Mechanics
+
+    While optimized for complete offline survival, NetGuard implements an opportunistic Hybrid Sync Architecture when network paths clear.
+    • State Assessment: The network monitor checks loop conditions to evaluate route state, cost, and telemetry pipe capacity.
+    • Cloud Upload Uplink: Local data chunks are securely securely streamed to AWS endpoint nodes for fleet-wide modeling.
+    • Downlink Map Syncing: Global dead-zone changes compiled via cloud multi-source aggregation are pulled back to the device to update the local database cache.
+
+5. Security & Fail-Safe Modes
+
+
+    5.1 Privacy & Data Minification
+
+        • To guarantee user privacy, raw telemetry records can undergo complete spatial obfuscation on-device, stripping direct timestamps or identifying user patterns prior to cloud transmission.
+        • Databases are housed strictly within the isolated application data container directory of Termux.
+
+    5.2 System Fail-Safe States
+
+        • Storage Cap Exhaustion: If local SQLite volumes hit disk threshold allocations, a FIFO (First-In, First-Out) pruning script purges the oldest telemetry records to keep system performance stable.
+        • API Inaccessibility: If Android location privileges drop or disconnect, the system enters an idle low-power loop, preventing log file corruption.
+
+
+6. Mathematical Models & Operational Metrics
+
+This section formalizes the core logic used by the automated data collector, the spatial geo-bucketing algorithm, and the predictive alerting engine.
+
+    6.1 Telemetry Quality Metrics (RSRP & RSRQ Analysis)
+
+    The system uses Reference Signal Received Power (RSRP) and Reference Signal Received Quality (RSRQ) to score local connection strength. A composite metric, the Connectivity Health Index (CHI), is evaluated for every logged observation:
+    \(CHI=w_{1}\cdot \left(\frac{RSRP-RSRP_{min}}{RSRP_{max}-RSRP_{min}}\right)+w_{2}\cdot \left(\frac{RSRQ-RSRQ_{min}}{RSRQ_{max}-RSRQ_{min}}\right)\)
+    Where:
+    • \(RSRP_{min} = -140 \text{ dBm}\), \(RSRP_{max} = -40 \text{ dBm}\) (Standard LTE limits)
+    • \(RSRQ_{min} = -20 \text{ dB}\), \(RSRQ_{max} = -3 \text{ dB}\)
+    • w₁, w₂ are weight factors (w₁ + w₂ = 1.0), dynamically adjusted based on the current network generation type (e.g., 4G vs. 5G).
+    • If CHI < 0.35, the coordinate is flagged as a Telemetry Deficit Event.
+
+    6.2 Spatial Resolution Mapping (Geo-Bucketing)
+
+    To eliminate expensive spatial boundary intersections, continuous GPS coordinates are mapped into a discrete grid zone using a spatial truncation function f(x):
+    \(\text{Zone}_{Lat}=\frac{\lfloor \phi \cdot 10^{3}\rfloor }{10^{3}},\quad \text{Zone}_{Lon}=\frac{\lfloor \lambda \cdot 10^{3}\rfloor }{10^{3}}\)
+    Where:
+    • φ represents raw decimal latitude.
+    • λ represents raw decimal longitude.
+    • The constant multiplier 10³ truncates coordinates to exactly 3 decimal places, establishing fixed geographic boundaries. At the equator, the maximum structural error bounding box size (\(S_{e}\)) is bounded by:
+    \(S_{e}\approx \frac{40,075\text{\ km}}{360\times 10^{3}}\approx 111.32\text{\ metres}\)
+
+    6.3 Aggregated Zone Prediction Logic
+
+    A specific zone index \((Z_{Lat}, Z_{Lon})\) is predicted to be a Dead Zone (DZ) if the moving average of its collected telemetry drops below a statistical baseline:
+    \(DZ_{(Z_{Lat},Z_{Lon})}=\begin{cases}1&\text{if\ }\left(\frac{1}{N}\sum _{i=1}^{N}CHI_{i}\right)<\tau \\ 0&\text{otherwise}\end{cases}\)
+    Where:
+    • N is the total historical sample count inside that specific spatial bucket.
+    • τ is the system execution threshold (typically set to 0.40).
+
+    6.4 Proximity & Trajectory Intersection (Predictive Alerting)
+
+    Instead of matching only the user's static current position, NetGuard projects the user's immediate vector path to trigger early warnings. The projected coordinate \((\phi_p, \lambda_p)\) at time step t + Δ t is modeled linearly:
+    \(\phi _{p}=\phi _{t}+v_{\phi }\cdot \Delta t,\quad \lambda _{p}=\lambda _{t}+v_{\lambda }\cdot \Delta t\)
+    Where:
+    • \((\phi_t, \lambda_t)\) is the current GPS location.
+    • \(v_{\phi}, v_{\lambda}\) represent calculated instantaneous velocity components derived from the GPS API.
+    • Δ t is the predictive horizon window (e.g., 10 seconds into the future).
+    The system then evaluates the target zone index for the projected point:
+    \(\text{Match\ Event}=DZ_{\left(f(\phi _{p}),\,f(\lambda _{p})\right)}\)
+    If Match Event = 1, the background thread bypasses general execution loops and instantly fires a high-priority system UI alert.
+
+
+7 Empirical Signal Classification Matrix
+
+    To evaluate real-time measurements without relying heavily on complex math, the system maps raw cellular readings onto a standardized 4-tier score framework:
+
+    +---------------------+--------------------+-------------------------------+---------------------------+--------------------------------------------------------------------------------+
+
+    | Measured RSRP (dBm) | Measured RSRQ (dB) | Predictive Connectivity Score |    Zone Classification    |                      Recommended Automated System Action                       |
+    +---------------------+--------------------+-------------------------------+---------------------------+--------------------------------------------------------------------------------+
+
+    | >= -80              | >= -10             | 4 (Excellent)                 | Safe Zone                 | Suppress alerts; allow intensive cloud syncing / high-bandwidth transfers      |
+    +---------------------+--------------------+-------------------------------+---------------------------+--------------------------------------------------------------------------------+
+
+    | -81 to -95          | -11 to -15         | 3 (Good)                      | Safe Zone                 | Standard operation; periodic background telemetry collection remains active    |
+    +---------------------+--------------------+-------------------------------+---------------------------+--------------------------------------------------------------------------------+
+
+    | -96 to -110         | -16 to -19         | 2 (Fair / Low)                | Transition Buffer         | Prepare trajectory tracking; warn background services to pause traffic         |
+    +---------------------+--------------------+-------------------------------+---------------------------+--------------------------------------------------------------------------------+
+
+    | <= -111             | <= -20             | 1 (Poor / Dead)               | Connectivity Deficit Zone | Trigger Pre-emptive Push Alert; freeze cloud pipes; activate offline caching   |
+    +---------------------+--------------------+-------------------------------+---------------------------+--------------------------------------------------------------------------------+
+
